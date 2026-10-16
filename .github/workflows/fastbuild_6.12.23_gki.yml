@@ -21,6 +21,7 @@ on:
           - 'sukisu'
           - 'ksunext'
           - 'ksu'
+          - 'finasu'
           - 'none'
       susfs_enable:
         description: '是否开启susfs(用于增强隐藏环境挂载功能; 可能轻微增加耗电，上游更新导致不稳定时或不需要可关闭)'
@@ -288,6 +289,56 @@ jobs:
             echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
             echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
             sed -i "s/DKSU_VERSION=16/DKSU_VERSION=${KSU_VERSION}/" kernel/Kbuild
+          elif [[ ${{ github.event.inputs.ksu_type }} == "finasu" ]]; then
+            echo "正在配置FinaSU..."
+            git clone https://github.com/LyraVoid/FinaSU.git KernelSU
+            # FinaSU 内核侧 in-tree 集成：软链驱动目录并挂载 Makefile / Kconfig
+            DRIVER_DIR="$PWD/common/drivers"
+            ln -sfn "$(realpath --relative-to="$DRIVER_DIR" "$PWD/KernelSU/kernel")" "$DRIVER_DIR/kernelsu"
+            grep -q "obj-.*CONFIG_KSU.*kernelsu/" "$DRIVER_DIR/Makefile" || \
+              echo 'obj-$(CONFIG_KSU) += kernelsu/' >> "$DRIVER_DIR/Makefile"
+            if ! grep -q 'source "drivers/kernelsu/Kconfig"' "$DRIVER_DIR/Kconfig"; then
+              sed -i "/endmenu/i source \"drivers/kernelsu/Kconfig\"" "$DRIVER_DIR/Kconfig"
+            fi
+            # 下载 FinaSU 最新 Release 管理器 APK 并提取签名证书（内核第二信任槽对齐）
+            wget -q https://raw.githubusercontent.com/LingLuo17/AnyKernel3/main/scripts/finasu_compat/extract_manager_cert.py -O extract_manager_cert.py
+            REL_APK=$(mktemp -d)/manager.apk
+            REL_JSON=$(curl -s --fail --max-time 30 "https://api.github.com/repos/LyraVoid/FinaSU/releases/latest")
+            REL_URL=$(printf '%s' "$REL_JSON" | python3 -c "import json,sys; d=json.load(sys.stdin); print(next(a['browser_download_url'] for a in d.get('assets',[]) if a['name'].endswith('.apk')))" 2>/dev/null || true)
+            if [ -z "$REL_URL" ]; then
+              echo "::error::无法获取 FinaSU 管理器签名证书：最新 Release 中没有 APK 资产"
+              exit 1
+            fi
+            curl -sL --fail --retry 3 --max-time 300 -o "$REL_APK" "$REL_URL" || { echo "::error::下载 FinaSU 管理器 APK 失败"; exit 1; }
+            CERT_INFO=$(python3 ./extract_manager_cert.py "$REL_APK" | head -n1)
+            KSU_CERT_SIZE=$(echo "$CERT_INFO" | awk '{print $1}')
+            KSU_CERT_HASH=$(echo "$CERT_INFO" | awk '{print $2}')
+            if [ -z "$KSU_CERT_SIZE" ] || [ -z "$KSU_CERT_HASH" ]; then
+              echo "::error::FinaSU 管理器签名证书提取失败，FinaSU 管理器将无法被内核识别"
+              exit 1
+            fi
+            echo "注入 FinaSU 管理器签名证书到内核第二信任槽: size=$KSU_CERT_SIZE sha256=$KSU_CERT_HASH"
+            awk -v size="$KSU_CERT_SIZE" -v hash="$KSU_CERT_HASH" '
+              !done && /^ccflags-y \+= -DEXPECTED_HASH=/ {
+                print
+                print "# injected by GKI_FinaSU_SUSFS: trust the official FinaSU manager via the second signature slot"
+                print "KSU_EXPECTED_SIZE2 := " size
+                print "KSU_EXPECTED_HASH2 := " hash
+                print "KSU_SECOND_SIGNATURE_RELEASE := 1"
+                done = 1
+                next
+              }
+              { print }
+            ' KernelSU/kernel/Kbuild > KernelSU/kernel/Kbuild.new && mv KernelSU/kernel/Kbuild.new KernelSU/kernel/Kbuild
+            grep -q "^KSU_EXPECTED_SIZE2 := " KernelSU/kernel/Kbuild \
+              && grep -q "^KSU_EXPECTED_HASH2 := " KernelSU/kernel/Kbuild \
+              && grep -q "^KSU_SECOND_SIGNATURE_RELEASE := 1" KernelSU/kernel/Kbuild \
+              || { echo "::error::Kbuild 注入失败（锚点行缺失，FinaSU 上游 Kbuild 结构可能已变化）"; exit 1; }
+            # FinaSU 版本号：30000 + 提交数（与官方管理器 versionCode 同源）
+            cd ./KernelSU
+            KSU_VERSION=$(expr $(git rev-list --count HEAD) + 30000 2>/dev/null || echo 114514)
+            echo "KSUVER=$KSU_VERSION" >> $GITHUB_ENV
+            echo "ksuver=$KSU_VERSION" >> $GITHUB_OUTPUT
           else
             echo "已选择无内置KernelSU模式，跳过KernelSU配置..."
           fi
@@ -313,6 +364,12 @@ jobs:
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
             cd ./KernelSU
             patch -p1 -F 3 < 10_enable_susfs_for_ksu.patch || true
+          fi
+          if [[ ${{ github.event.inputs.ksu_type }} == "finasu" ]]; then
+            echo "正在为 FinaSU 应用 KernelSU 侧 SUSFS 补丁并做适配修复..."
+            cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
+            wget -q https://raw.githubusercontent.com/LingLuo17/AnyKernel3/main/scripts/finasu_compat/apply.sh -O finasu_apply.sh
+            SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU
           fi
           
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
@@ -729,6 +786,8 @@ jobs:
             KSU_TYPENAME="KSUNext"
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
             KSU_TYPENAME="KSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "finasu" ]]; then
+            KSU_TYPENAME="FinaSU"
           else
             KSU_TYPENAME="none"
           fi
@@ -832,6 +891,8 @@ jobs:
             KSU_TYPENAME="KernelSU Next"
           elif [[ ${{ github.event.inputs.ksu_type }} == "ksu" ]]; then
             KSU_TYPENAME="KSU"
+          elif [[ ${{ github.event.inputs.ksu_type }} == "finasu" ]]; then
+            KSU_TYPENAME="FinaSU"
           else
             KSU_TYPENAME="无内置KSU"
           fi
@@ -883,3 +944,4 @@ jobs:
             --title "${{ env.TAG_HEAD }}-${{ env.FULL_VERSION }}" \
             --notes-file release_notes.md \
             release_zips/AnyKernel3_*.zip
+         
