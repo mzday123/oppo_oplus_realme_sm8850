@@ -345,6 +345,14 @@ jobs:
               grep -n 'ccflags-y.*KSU_KERNEL_DIR' KernelSU/kernel/Kbuild 2>&1 || true
               echo "=== DEBUG-END ==="
               # ===== FIX: explicit include paths (bypass symlinked driver dir) =====
+                            # ===== FIX2: 强制 sucompat.c/preinit.c 使用 FinaSU 自身 util.h（防止同名头文件遮蔽）=====
+              for f in kernel/feature/sucompat.c kernel/preinit/preinit.c; do
+                if [ -f "KernelSU/$f" ] && grep -q '#include "util.h"' "KernelSU/$f"; then
+                  sed -i 's|#include "util.h"|#include "../include/util.h"|' "KernelSU/$f"
+                  echo "FIX2: $f -> ../include/util.h"
+                fi
+              done
+              grep -rn '#include "util.h"' KernelSU/kernel/ | head -20 || true
                             grep -q 'srctree)/../KernelSU/kernel/include' KernelSU/kernel/Kbuild || \
                 echo 'ccflags-y += -I$(srctree)/../KernelSU/kernel/include -I$(srctree)/../KernelSU/uapi' >> KernelSU/kernel/Kbuild
             # FinaSU 版本号：30000 + 提交数（与官方管理器 versionCode 同源）
