@@ -391,31 +391,19 @@ jobs:
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
             wget -q https://raw.githubusercontent.com/LingLuo17/AnyKernel3/main/scripts/finasu_compat/apply.sh -O finasu_apply.sh
             
-            SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU
-            # ===== FIX3: 修复 10_enable_susfs 补丁对 FinaSU sucompat.c 的部分应用漂移 =====
+            SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU            # ===== FIX3: 修复 10_enable_susfs 补丁对 FinaSU sucompat.c 的部分应用漂移 =====
             python3 - KernelSU/kernel/feature/sucompat.c <<'PYEOF'
             import sys
             path = sys.argv[1]
             src = open(path, encoding="utf-8").read()
             orig = src
             if '#include "feature/adb_root.h"' not in src:
-                src = src.replace('#include "feature/sucompat.h"', '#include "feature/sucompat.h"
-#include "feature/adb_root.h"', 1)
+                src = src.replace('#include "feature/sucompat.h"', '#include "feature/sucompat.h"' + chr(10) + '#include "feature/adb_root.h"', 1)
             if 'DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled)' not in src:
                 if 'bool ksu_su_compat_enabled __read_mostly = true;' in src:
-                    src = src.replace('bool ksu_su_compat_enabled __read_mostly = true;', 'static const char sh_path[] = SH_PATH;
-static const char su_path[] = SU_PATH;
-static const char ksud_path[] = KSUD_PATH;
-
-DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);', 1)
-            src = src.replace('*value = ksu_su_compat_enabled ? 1 : 0;', 'if (static_key_enabled(&ksu_su_compat_enabled))
-        *value = 1;
-    else
-        *value = 0;', 1)
-            src = src.replace('ksu_su_compat_enabled = enable;', 'if (enable)
-        static_branch_enable(&ksu_su_compat_enabled);
-    else
-        static_branch_disable(&ksu_su_compat_enabled);', 1)
+                    src = src.replace('bool ksu_su_compat_enabled __read_mostly = true;', 'static const char sh_path[] = SH_PATH;' + chr(10) + 'static const char su_path[] = SU_PATH;' + chr(10) + 'static const char ksud_path[] = KSUD_PATH;' + chr(10) + chr(10) + 'DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);', 1)
+            src = src.replace('*value = ksu_su_compat_enabled ? 1 : 0;', 'if (static_key_enabled(&ksu_su_compat_enabled))' + chr(10) + '        *value = 1;' + chr(10) + '    else' + chr(10) + '        *value = 0;', 1)
+            src = src.replace('ksu_su_compat_enabled = enable;', 'if (enable)' + chr(10) + '        static_branch_enable(&ksu_su_compat_enabled);' + chr(10) + '    else' + chr(10) + '        static_branch_disable(&ksu_su_compat_enabled);', 1)
             open(path, "w", encoding="utf-8").write(src)
             print("FIX3 sucompat.c:", "changed" if src != orig else "no-op")
             PYEOF
@@ -430,6 +418,7 @@ DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);', 1)
             print("FIX3 syscall_event_bridge.c:", "changed" if src != orig else "no-op")
             PYEOF
             grep -n 'DEFINE_STATIC_KEY_TRUE\|static_key_enabled\|adb_root.h' KernelSU/kernel/feature/sucompat.c | head -20
+
           fi
           
       - name: 应用lz4 1.10.0 & zstd 1.5.7补丁
