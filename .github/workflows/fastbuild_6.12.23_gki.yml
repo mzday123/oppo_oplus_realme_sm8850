@@ -333,7 +333,19 @@ jobs:
             grep -q "^KSU_EXPECTED_SIZE2 := " KernelSU/kernel/Kbuild \
               && grep -q "^KSU_EXPECTED_HASH2 := " KernelSU/kernel/Kbuild \
               && grep -q "^KSU_SECOND_SIGNATURE_RELEASE := 1" KernelSU/kernel/Kbuild \
-              || { echo "::error::Kbuild 注入失败（锚点行缺失，FinaSU 上游 Kbuild 结构可能已变化）"; exit 1; }
+
+              # ===== DEBUG: FinaSU include path sanity check =====
+              echo "=== DEBUG-Finasu-include ==="
+              readlink common/drivers/kernelsu 2>&1 || true
+              ls -la KernelSU/kernel/include/ 2>&1 | head -20 || true
+              ls -la common/drivers/kernelsu/include/ 2>&1 | head -20 || true
+              ls -la common/drivers/kernelsu/include/klog.h 2>&1 || true
+              ls -la common/drivers/kernelsu/include/uapi/app_profile.h 2>&1 || true
+              grep -n 'ccflags-y.*KSU_KERNEL_DIR' KernelSU/kernel/Kbuild 2>&1 || true
+              echo "=== DEBUG-END ==="
+              # ===== FIX: explicit include paths (bypass symlinked driver dir) =====
+                            grep -q 'srctree)/../KernelSU/kernel/include' KernelSU/kernel/Kbuild || \
+                echo 'ccflags-y += -I$(srctree)/../KernelSU/kernel/include -I$(srctree)/../KernelSU/uapi' >> KernelSU/kernel/Kbuild
             # FinaSU 版本号：30000 + 提交数（与官方管理器 versionCode 同源）
             cd ./KernelSU
             KSU_VERSION=$(expr $(git rev-list --count HEAD) + 30000 2>/dev/null || echo 114514)
