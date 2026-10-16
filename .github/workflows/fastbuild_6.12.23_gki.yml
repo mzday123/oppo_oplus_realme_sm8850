@@ -390,33 +390,12 @@ jobs:
             echo "正在为 FinaSU 应用 KernelSU 侧 SUSFS 补丁并做适配修复..."
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
             wget -q https://raw.githubusercontent.com/LingLuo17/AnyKernel3/main/scripts/finasu_compat/apply.sh -O finasu_apply.sh
+            SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU
             
-            SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU            # ===== FIX3: 修复 10_enable_susfs 补丁对 FinaSU sucompat.c 的部分应用漂移 =====
-            python3 - KernelSU/kernel/feature/sucompat.c <<'PYEOF'
-            import sys
-            path = sys.argv[1]
-            src = open(path, encoding="utf-8").read()
-            orig = src
-            if '#include "feature/adb_root.h"' not in src:
-                src = src.replace('#include "feature/sucompat.h"', '#include "feature/sucompat.h"' + chr(10) + '#include "feature/adb_root.h"', 1)
-            if 'DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled)' not in src:
-                if 'bool ksu_su_compat_enabled __read_mostly = true;' in src:
-                    src = src.replace('bool ksu_su_compat_enabled __read_mostly = true;', 'static const char sh_path[] = SH_PATH;' + chr(10) + 'static const char su_path[] = SU_PATH;' + chr(10) + 'static const char ksud_path[] = KSUD_PATH;' + chr(10) + chr(10) + 'DEFINE_STATIC_KEY_TRUE(ksu_su_compat_enabled);', 1)
-            src = src.replace('*value = ksu_su_compat_enabled ? 1 : 0;', 'if (static_key_enabled(&ksu_su_compat_enabled))' + chr(10) + '        *value = 1;' + chr(10) + '    else' + chr(10) + '        *value = 0;', 1)
-            src = src.replace('ksu_su_compat_enabled = enable;', 'if (enable)' + chr(10) + '        static_branch_enable(&ksu_su_compat_enabled);' + chr(10) + '    else' + chr(10) + '        static_branch_disable(&ksu_su_compat_enabled);', 1)
-            open(path, "w", encoding="utf-8").write(src)
-            print("FIX3 sucompat.c:", "changed" if src != orig else "no-op")
-            PYEOF
-            python3 - KernelSU/kernel/hook/syscall_event_bridge.c <<'PYEOF'
-            import sys
-            path = sys.argv[1]
-            src = open(path, encoding="utf-8").read()
-            orig = src
-            src = src.replace('if (!ksu_su_compat_enabled)', 'if (!static_key_enabled(&ksu_su_compat_enabled))')
-            src = src.replace('if (ksu_su_compat_enabled)', 'if (static_key_enabled(&ksu_su_compat_enabled))')
-            open(path, "w", encoding="utf-8").write(src)
-            print("FIX3 syscall_event_bridge.c:", "changed" if src != orig else "no-op")
-            PYEOF
+
+            # ===== FIX3(base64): 修复 10_enable_susfs 补丁对 FinaSU sucompat.c 的部分应用漂移 =====
+            echo 'aW1wb3J0IHN5cwpwYXRoID0gc3lzLmFyZ3ZbMV0Kc3JjID0gb3BlbihwYXRoLCBlbmNvZGluZz0idXRmLTgiKS5yZWFkKCkKb3JpZyA9IHNyYwppZiAnI2luY2x1ZGUgImZlYXR1cmUvYWRiX3Jvb3QuaCInIG5vdCBpbiBzcmM6CiAgICBzcmMgPSBzcmMucmVwbGFjZSgnI2luY2x1ZGUgImZlYXR1cmUvc3Vjb21wYXQuaCInLCAnI2luY2x1ZGUgImZlYXR1cmUvc3Vjb21wYXQuaCJcbiNpbmNsdWRlICJmZWF0dXJlL2FkYl9yb290LmgiJywgMSkKaWYgJ0RFRklORV9TVEFUSUNfS0VZX1RSVUUoa3N1X3N1X2NvbXBhdF9lbmFibGVkKScgbm90IGluIHNyYzoKICAgIGlmICdib29sIGtzdV9zdV9jb21wYXRfZW5hYmxlZCBfX3JlYWRfbW9zdGx5ID0gdHJ1ZTsnIGluIHNyYzoKICAgICAgICBzcmMgPSBzcmMucmVwbGFjZSgnYm9vbCBrc3Vfc3VfY29tcGF0X2VuYWJsZWQgX19yZWFkX21vc3RseSA9IHRydWU7JywgJ3N0YXRpYyBjb25zdCBjaGFyIHNoX3BhdGhbXSA9IFNIX1BBVEg7XG5zdGF0aWMgY29uc3QgY2hhciBzdV9wYXRoW10gPSBTVV9QQVRIO1xuc3RhdGljIGNvbnN0IGNoYXIga3N1ZF9wYXRoW10gPSBLU1VEX1BBVEg7XG5cbkRFRklORV9TVEFUSUNfS0VZX1RSVUUoa3N1X3N1X2NvbXBhdF9lbmFibGVkKTsnLCAxKQpzcmMgPSBzcmMucmVwbGFjZSgnKnZhbHVlID0ga3N1X3N1X2NvbXBhdF9lbmFibGVkID8gMSA6IDA7JywgJ2lmIChzdGF0aWNfa2V5X2VuYWJsZWQoJmtzdV9zdV9jb21wYXRfZW5hYmxlZCkpXG4gICAgICAgICp2YWx1ZSA9IDE7XG4gICAgZWxzZVxuICAgICAgICAqdmFsdWUgPSAwOycsIDEpCnNyYyA9IHNyYy5yZXBsYWNlKCdrc3Vfc3VfY29tcGF0X2VuYWJsZWQgPSBlbmFibGU7JywgJ2lmIChlbmFibGUpXG4gICAgICAgIHN0YXRpY19icmFuY2hfZW5hYmxlKCZrc3Vfc3VfY29tcGF0X2VuYWJsZWQpO1xuICAgIGVsc2VcbiAgICAgICAgc3RhdGljX2JyYW5jaF9kaXNhYmxlKCZrc3Vfc3VfY29tcGF0X2VuYWJsZWQpOycsIDEpCm9wZW4ocGF0aCwgInciLCBlbmNvZGluZz0idXRmLTgiKS53cml0ZShzcmMpCnByaW50KCJGSVgzIHN1Y29tcGF0LmM6IiwgImNoYW5nZWQiIGlmIHNyYyAhPSBvcmlnIGVsc2UgIm5vLW9wIik=' | base64 -d | python3 - KernelSU/kernel/feature/sucompat.c
+            echo 'aW1wb3J0IHN5cwpwYXRoID0gc3lzLmFyZ3ZbMV0Kc3JjID0gb3BlbihwYXRoLCBlbmNvZGluZz0idXRmLTgiKS5yZWFkKCkKb3JpZyA9IHNyYwpzcmMgPSBzcmMucmVwbGFjZSgnaWYgKCFrc3Vfc3VfY29tcGF0X2VuYWJsZWQpJywgJ2lmICghc3RhdGljX2tleV9lbmFibGVkKCZrc3Vfc3VfY29tcGF0X2VuYWJsZWQpKScpCnNyYyA9IHNyYy5yZXBsYWNlKCdpZiAoa3N1X3N1X2NvbXBhdF9lbmFibGVkKScsICdpZiAoc3RhdGljX2tleV9lbmFibGVkKCZrc3Vfc3VfY29tcGF0X2VuYWJsZWQpKScpCm9wZW4ocGF0aCwgInciLCBlbmNvZGluZz0idXRmLTgiKS53cml0ZShzcmMpCnByaW50KCJGSVgzIHN5c2NhbGxfZXZlbnRfYnJpZGdlLmM6IiwgImNoYW5nZWQiIGlmIHNyYyAhPSBvcmlnIGVsc2UgIm5vLW9wIik=' | base64 -d | python3 - KernelSU/kernel/hook/syscall_event_bridge.c
             grep -n 'DEFINE_STATIC_KEY_TRUE\|static_key_enabled\|adb_root.h' KernelSU/kernel/feature/sucompat.c | head -20
 
           fi
