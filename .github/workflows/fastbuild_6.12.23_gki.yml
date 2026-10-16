@@ -333,6 +333,7 @@ jobs:
             grep -q "^KSU_EXPECTED_SIZE2 := " KernelSU/kernel/Kbuild \
               && grep -q "^KSU_EXPECTED_HASH2 := " KernelSU/kernel/Kbuild \
               && grep -q "^KSU_SECOND_SIGNATURE_RELEASE := 1" KernelSU/kernel/Kbuild \
+                            || { echo "::error::Kbuild 注入失败（锚点行缺失，FinaSU 上游 Kbuild 结构可能已变化）"; exit 1; }
 
               # ===== DEBUG: FinaSU include path sanity check =====
               echo "=== DEBUG-Finasu-include ==="
