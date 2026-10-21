@@ -646,6 +646,17 @@ jobs:
           sed -i 's/${scm_version}//' ./common/scripts/setlocalversion
           echo "CONFIG_LOCALVERSION_AUTO=n" >> ./common/arch/arm64/configs/gki_defconfig
            
+      - name: 修复 libbpf -Werror（FinaSU 32990 libbpf const 兼容）
+        if: inputs.ksu_type == 'finasu' || inputs.ksu_type == 'bakasu' || inputs.ksu_type == 'sukisu'
+        run: |
+          cd kernel_workspace/common
+          echo "关闭 resolve_btfids/libbpf 的 -Werror..."
+          find tools/bpf/resolve_btfids tools/lib/bpf -name 'Makefile' 2>/dev/null | while read f; do
+            sed -i 's/-Werror\b/-Wno-error/g' "$f" || true
+          done
+          sed -i '8156s/char\s*\*/const char */' tools/bpf/resolve_btfids/libbpf/libbpf.c 2>/dev/null || true
+          sed -i '11956s/char\s*\*/const char */' tools/bpf/resolve_btfids/libbpf/libbpf.c 2>/dev/null || true
+          echo "libbpf 修复完成"
       - name: 构建内核
         run: |
           WORKDIR="$(pwd)"
