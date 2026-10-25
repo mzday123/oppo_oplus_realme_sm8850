@@ -389,7 +389,7 @@ jobs:
           if [[ ${{ github.event.inputs.ksu_type }} == "finasu" ]]; then
             echo "正在为 FinaSU 应用 KernelSU 侧 SUSFS 补丁并做适配修复..."
             cp ./susfs4ksu/kernel_patches/KernelSU/10_enable_susfs_for_ksu.patch ./KernelSU/
-            wget -q https://raw.githubusercontent.com/mzday123/AnyKernel3/main/scripts/finasu_compat/apply.sh?t=18 -O finasu_apply.sh
+            wget -q https://raw.githubusercontent.com/mzday123/AnyKernel3/main/scripts/finasu_compat/apply.sh?t=19 -O finasu_apply.sh
             SUSFS4KSU="$(pwd)/susfs4ksu" KERNEL_ROOT="$(pwd)" bash ./finasu_apply.sh KernelSU
             # Fix FinaSU v1.0.7: SUSFS patch removes hook/tp_marker.o (setuid_hook dependency); restore it
             if ! grep -q "hook/tp_marker.o" ./KernelSU/kernel/Kbuild; then
